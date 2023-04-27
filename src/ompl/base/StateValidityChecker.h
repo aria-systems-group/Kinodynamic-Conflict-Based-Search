@@ -125,32 +125,7 @@ namespace ompl
             }
 
             /** \brief Return true if the state is valid while accounting for dynamic obstacles */
-            virtual bool isValid(const State *state, const double time)
-            {
-                if (dynObstacles_.empty())
-                    return isValid(state);
-                else
-                {
-                    if (isValid(state))
-                    {
-                        int t_key = std::round(time * scalingFactor_);
-                        auto obsAtTime = dynObstacles_.find(t_key);
-                        if (obsAtTime != dynObstacles_.end())
-                        {
-                            for (auto st = obsAtTime->second.begin(); st != obsAtTime->second.end(); st++)
-                            {
-                                if (!areStatesValid(state, *st))
-                                    return false;
-                            }
-                            return true;
-                        }
-                        else
-                            return true;
-                    }
-                    else
-                        return false;
-                }
-            }
+            virtual bool isValid(const State *state, const double time);
 
             /** \brief Function that always return true. This must be overridden when planning for dynamic obstacles */
             virtual bool areStatesValid(const State *state1, const std::pair<const SpaceInformationPtr,const State*> state2) const

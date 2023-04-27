@@ -107,8 +107,8 @@ public:
 
         // one must code required logic to figure out if robot1 at state1 collides with robot2 at state2
         // this example assumes all robots are disks in R^2 of varying sizes.
-        double rad1 = radii_.at(robot1) + 0.1; // safety criterion
-        double rad2 = radii_.at(robot2) + 0.1; // safety criterion
+        double rad1 = radii_.at(robot1);
+        double rad2 = radii_.at(robot2); 
 
         const double* robot1_pos = robot1_state->as<ob::RealVectorStateSpace::StateType>(0)->values;
         const double* robot2_pos = robot2_state->as<ob::RealVectorStateSpace::StateType>(0)->values;

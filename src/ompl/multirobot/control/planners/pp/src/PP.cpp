@@ -103,9 +103,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::PP::solve(const ompl::base:
     auto plan(std::make_shared<PlanControl>(si_));
     for (unsigned int r = 0; r < si_->getIndividualCount(); ++r)
     {
-        /* plan for individual r while treating individuals 1, ..., r-1 as dynamic obstacles 
-            Note: It is theoretically possible to use any planner from ompl::control. We only use RRT for now.
-        */
+        // plan for individual r while treating individuals 1, ..., r-1 as dynamic obstacles 
         ompl::base::PlannerStatus solved = llSolvers_[r]->solve(ptc);
         if (solved == ompl::base::PlannerStatus::EXACT_SOLUTION)
         {
