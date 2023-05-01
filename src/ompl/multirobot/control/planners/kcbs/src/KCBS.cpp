@@ -58,6 +58,8 @@ void ompl::multirobot::control::KCBS::clear()
 
 void ompl::multirobot::control::KCBS::freeMemory()
 {
+    // clear the priority queue
+    pq_ = std::priority_queue<NodePtr, std::vector<NodePtr>, NodeCompare>();
     // free memory of every node
     for (auto n: allNodesSet_)
         n.reset();
@@ -70,6 +72,7 @@ void ompl::multirobot::control::KCBS::freeMemory()
     // free memory of the merged planner (if it exists)
     if (mergerPlanner_)
         mergerPlanner_.reset();
+
 }
 
 void ompl::multirobot::control::KCBS::setup()
@@ -183,31 +186,6 @@ std::vector<ompl::multirobot::control::KCBS::Conflict> ompl::multirobot::control
                 {
                     Conflict c(r1, r2, k, state1, otherStatePair.second);
                     confs.push_back(c);
-                    // while in collision, add all of the conflicts to confs and return
-                    unsigned int step = k;
-                    bool inCollision_ = true;
-                    while (inCollision_ && step < maxSteps)
-                    {
-                        step++;
-                        if (step < plan->getPath(r1)->getStateCount())
-                            state1 = plan->getPath(r1)->getState(step);
-                        else
-                            state1 = plan->getPath(r1)->getStates().back();
-                
-                        if (step < plan->getPath(r2)->getStateCount())
-                            otherStatePair.second = plan->getPath(r2)->getState(step);
-                        else
-                            otherStatePair.second = plan->getPath(r2)->getStates().back();
-
-                        if (siC_->getIndividual(r1)->getStateValidityChecker()->areStatesValid(state1, otherStatePair))
-                            inCollision_ = false;
-                        else
-                        {
-                            Conflict cNxt(r1, r2, step, state1, otherStatePair.second);
-                            confs.push_back(cNxt);
-                        }
-                    }
-                    return confs;
                 }
             }
         }
@@ -248,7 +226,7 @@ const ompl::multirobot::control::KCBS::ConstraintPtr ompl::multirobot::control::
     return constraint;
 }
 
-void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr &node, const bool retry)
+bool ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr &node, const bool retry)
 {
     // collect all of the constraints on robot by traversing constraint tree back to root node
     auto nCpy = node;
@@ -288,7 +266,12 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
     if (solved == ompl::base::PlannerStatus::EXACT_SOLUTION)
     {
         PlanControlPtr new_plan = std::make_shared<PlanControl>(si_);
-        auto new_path = std::make_shared<ompl::control::PathControl>(*llSolvers_[robot]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+        ompl::control::PathControlPtr new_path = nullptr;
+        if (retry)
+            new_path = std::make_shared<ompl::control::PathControl>(*node->getLowLevelSolver()->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+        else
+            new_path = std::make_shared<ompl::control::PathControl>(*llSolvers_[robot]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+        
         for (unsigned int r = 0; r < siC_->getIndividualCount(); r++)
         {
             if (r == robot)
@@ -297,7 +280,7 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
                 new_plan->append(node->getParent()->getPlan()->getPath(r));
         }
         node->setPlan(new_plan);
-        node->setCost(new_plan->length());
+        return true;
     }
     else
     {
@@ -309,7 +292,22 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
             llSolvers_[robot] = siC_->allocatePlannerForIndividual(robot);
             llSolvers_[robot]->setProblemDefinition(pdef_->getIndividual(robot));
         }
+        return false;
     }
+}
+
+int ompl::multirobot::control::KCBS::evaluateCost(const std::vector<Conflict> confs)
+{
+    // update the conflictCounter_;
+    updateConflictCounter(confs);
+
+    // find the conflicts with unique robot pairs
+    std::vector<Conflict> unique_pairs;
+    std::unique_copy(confs.begin(), confs.end(), std::back_inserter(unique_pairs),
+                     [](Conflict c1, Conflict c2) { return c1.robots_[0] == c2.robots_[0] && c1.robots_[1] == c2.robots_[1]; });
+
+    // return the number of unique pairs we have minus the first one (it will be resolved)
+    return unique_pairs.size();
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::base::PlannerTerminationCondition &ptc)
@@ -322,12 +320,8 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     PlanControlPtr initalPlan = std::make_shared<PlanControl>(si_);
     for (auto itr = llSolvers_.begin(); itr != llSolvers_.end(); itr++) 
     {
-        // attempt to find an exact initial path to goal until ptc returns true
-        while ( !(*itr)->getProblemDefinition()->hasExactSolution() && !ptc )
-        {
-            (*itr)->solve(llSolveTime_);
-        }
-        if (!ptc)
+        (*itr)->solve(ptc);
+        if ((*itr)->getProblemDefinition()->hasExactSolution())
         {
             auto path = std::make_shared<ompl::control::PathControl>(*(*itr)->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
             initalPlan->append(path);
@@ -339,34 +333,66 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         }
     }
 
-    // create root node
-    NodePtr root = std::make_shared<Node>(initalPlan);
-    pushNode(root);
-
     NodePtr solution = nullptr;
     bool solved = false;
 
-    while (!ptc && !pq_.empty())
+    // create root node
+    NodePtr root = std::make_shared<Node>(initalPlan);
+    std::vector<Conflict> confs = findConflicts(root->getPlan());
+    if (confs.empty())
+        solution = root;  // found a solution in root node
+    else
+    {
+        // for debugging
+        root->setConflicts(confs);
+        root->setCost(evaluateCost(confs));
+        pushNode(root);
+    }
+
+    while (!ptc && !pq_.empty() && !solution)
     {
         // get the best unexplored node in the constraint tree
         NodePtr currentNode = popNode();
 
+        OMPL_INFORM("%s: selected node with cost %d.", getName().c_str(), currentNode->getCost());
+
         // if current node has not plan, then attempt to find one again
-        if (currentNode->getCost() == std::numeric_limits<double>::max())
+        if (currentNode->getCost() == std::numeric_limits<int>::max())
         {
             // use existing tree to attempt a replan
-            attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
+            bool success = attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
+            if (success)
+            {
+                std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
+                if (confs.empty())
+                {
+                    // found a solution
+                    solution = currentNode;
+                    break;
+                }
+                else
+                {
+                    currentNode->setConflicts(confs);
+                    currentNode->setCost(evaluateCost(confs));
+                }
+            }
             pushNode(currentNode);
         }
         else
         {
             // find conflicts in the current plan
-            std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
+            // std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
 
-            // if no conflicts were found, return as solution
-            if (confs.empty()) {
-                solution = currentNode;
-                break;
+            auto confs = currentNode->getConflicts();
+            auto itr = confs.begin();
+            std::vector<Conflict> first_pair = {*itr};
+            std::advance(itr, 1);
+            for (; itr != confs.end(); itr++)
+            {
+                if ((itr->robots_[0] == first_pair[0].robots_[0]) && (itr->robots_[1] == first_pair[0].robots_[1]))
+                    first_pair.push_back(*itr);
+                else
+                    break;
             }
 
             // for debugging
@@ -374,9 +400,6 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
             // {
             //     std::cout << "conflict between " << c.robots_[0] << " and " << c.robots_[1] << " at time " << c.timeStep_ << " with states " << c.states_[0] << " and " << c.states_[1]  << std::endl;
             // }
-
-            // update the conflictCounter_;
-            updateConflictCounter(confs);
 
             // if merge is needed, then merge and restart
             std::pair<int, int> merge_indices = mergeNeeded();
@@ -415,9 +438,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
             for (unsigned int r = 0; r < 2; r++)
             {
                 // create a new constraint
-                const ConstraintPtr new_constraint = createConstraint(r, confs);
-
-                // std::cout << "Created constraint for robot " << new_constraint->constrainedRobot_ << std::endl;
+                const ConstraintPtr new_constraint = createConstraint(r, first_pair);
 
                 // create a new node to house the new constraint, also assign a parent
                 NodePtr nxtNode = std::make_shared<Node>();
@@ -425,7 +446,23 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 nxtNode->setConstraint(new_constraint);
 
                 // attempt to replan and push node to priority queue
-                attemptReplan(new_constraint->constrainedRobot_, nxtNode);
+                bool success = attemptReplan(new_constraint->constrainedRobot_, nxtNode);
+
+                if (success)
+                {
+                    std::vector<Conflict> confs_nxt = findConflicts(nxtNode->getPlan());
+                    if (confs_nxt.empty())
+                    {
+                        // found a solution in root node
+                        solution = nxtNode;
+                        break;
+                    }
+                    else
+                    {
+                        nxtNode->setConflicts(confs_nxt);
+                        nxtNode->setCost(evaluateCost(confs_nxt));
+                    }
+                }
                 pushNode(nxtNode);
             }
         }
@@ -437,6 +474,15 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     }
     else 
     {
+        if (solution->getID() == -1)
+        {
+            boost::graph_traits<BoostGraph>::vertex_descriptor v = add_vertex(solution, tree_);
+            treeMap_.insert({solution->getName(), v});
+            if (solution->getParent())
+                add_edge(treeMap_[solution->getParent()->getName()], treeMap_[solution->getName()], tree_);
+            numNodesExpanded_ += 1;
+            solution->setID(numNodesExpanded_);
+        }
         solved = true;
         OMPL_INFORM("%s: Found Solution!", getName().c_str());
         pdef_->addSolutionPlan(solution->getPlan(), false, false, getName());

@@ -123,10 +123,26 @@ namespace ompl
                 {
                     Conflict(unsigned int r1, unsigned int r2, unsigned int step, ompl::base::State* st1, ompl::base::State* st2):
                         robots_{r1, r2}, states_{st1, st2}, timeStep_(step) {}
-                    const unsigned int robots_[2];
+                    // copy constructor
+                    Conflict(const Conflict &other)
+                    {
+                        this->robots_[0] = other.robots_[0];
+                        this->robots_[1] = other.robots_[1];
+                        this->states_[0] = other.states_[0];
+                        this->states_[1] = other.states_[1];
+                        this->timeStep_ = other.timeStep_;
+                    }
+                    unsigned int robots_[2];
                     ompl::base::State* states_[2];
-                    const unsigned int timeStep_;
+                    unsigned int timeStep_;
                 };
+
+                static bool ConflictCompare(const Conflict &lhs, const Conflict &rhs)
+                {
+                    if ((lhs.robots_[0] == rhs.robots_[0]) && (lhs.robots_[1] == rhs.robots_[1]))
+                        return true;
+                    return false;
+                }
 
                 /// @cond IGNORE
                 /** \brief Forward declaration of ompl::base::Planner */
@@ -161,10 +177,10 @@ namespace ompl
                 {
                 public:
                     Node(): plan_(nullptr), parent_(nullptr), constraint_(nullptr), 
-                        cost_(std::numeric_limits<double>::max()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
+                        cost_(std::numeric_limits<int>::max()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
 
                     Node(const PlanControlPtr plan): plan_(plan), parent_(nullptr), constraint_(nullptr), 
-                        cost_(plan->length()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
+                        cost_(std::numeric_limits<int>::max()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
 
                     ~Node()
                     {
@@ -182,11 +198,16 @@ namespace ompl
 
                     void setConstraint(const ConstraintPtr &c) {constraint_ = c;};
 
-                    void setCost(const double c) {cost_ = c;};
+                    void setCost(const int c) 
+                    {
+                        cost_ = c;
+                    };
 
                     void setID(const int id) {id_ = id;};
 
                     void setLowLevelSolver(ompl::base::PlannerPtr &planner) {llSolver_ = planner;};
+
+                    void setConflicts(std::vector<Conflict> c) {conflicts_ = c;};
 
                     const PlanControlPtr &getPlan() const {return plan_;};
 
@@ -194,16 +215,18 @@ namespace ompl
 
                     const ConstraintPtr &getConstraint() const {return constraint_;};
 
-                    double getCost() const {return cost_;};
+                    int getCost() const {return cost_;};
 
                     std::string getName() const { return name_; };
 
                     int getID() const {return id_;};
 
+                    const std::vector<Conflict> getConflicts() const {return conflicts_;};
+
                     std::string getLabel()
                     {
                         std::string costString;
-                        if (cost_ < std::numeric_limits<double>::max())
+                        if (cost_ < std::numeric_limits<int>::max())
                             costString = std::to_string(cost_);
                         else
                             costString = "-1";
@@ -256,7 +279,7 @@ namespace ompl
                     ConstraintPtr constraint_;
                     
                     /** \brief The cost of the node. */
-                    double cost_;
+                    int cost_;
 
                     /** \brief The name of the node wrt to the constraint tree -- used by BoostGraph */
                     std::string name_;
@@ -266,6 +289,9 @@ namespace ompl
 
                     /** \brief The PlannerPtr responsible for filling this node. Only use during retry */
                     ompl::base::PlannerPtr llSolver_;
+
+                    /** \brief The conflicts within this node */
+                    std::vector<Conflict> conflicts_;
                 };
 
                 /** \Brief The comparator function that the priority queue uses to sort the nodes. */
@@ -287,8 +313,11 @@ namespace ompl
                     }
                 };
 
+                /** \brief A cost of a node is equivalent to the number of conflict pairs it has minus the first one (because it will be resolved). */
+                int evaluateCost(const std::vector<Conflict> confs);
+
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
-                void attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
+                bool attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
 
                 /** \brief Create a constraint from the conflicts */
                 const ConstraintPtr createConstraint(const unsigned int robot, std::vector<Conflict> &confs);
