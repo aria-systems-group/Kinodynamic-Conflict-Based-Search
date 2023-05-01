@@ -159,6 +159,13 @@ namespace ompl
                     return si_;
                 }
 
+                void clearSolutionPaths()
+                {
+                    for (auto &pdef: individuals_)
+                        pdef->clearSolutionPaths();
+                    solutions_->clear();
+                }
+
                 // /** \brief Add a start state. The state is copied. */
                 // void addStartStateAtIndex(const unsigned int index, const ompl::base::State *state)
                 // {
