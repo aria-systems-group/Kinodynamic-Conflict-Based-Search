@@ -137,13 +137,6 @@ namespace ompl
                     unsigned int timeStep_;
                 };
 
-                static bool ConflictCompare(const Conflict &lhs, const Conflict &rhs)
-                {
-                    if ((lhs.robots_[0] == rhs.robots_[0]) && (lhs.robots_[1] == rhs.robots_[1]))
-                        return true;
-                    return false;
-                }
-
                 /// @cond IGNORE
                 /** \brief Forward declaration of ompl::base::Planner */
                 OMPL_CLASS_FORWARD(Constraint);
@@ -314,7 +307,7 @@ namespace ompl
                 };
 
                 /** \brief A cost of a node is equivalent to the number of conflict pairs it has minus the first one (because it will be resolved). */
-                int evaluateCost(const std::vector<Conflict> confs);
+                int evaluateCost(unsigned int robotIdx, const std::vector<Conflict> confs);
 
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
                 bool attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
