@@ -127,7 +127,7 @@ namespace ompl
 
             void setup() override;
 
-        protected:
+        
             /** \brief Representation of a motion
 
                 This only contains pointers to parent motions as we
@@ -154,9 +154,44 @@ namespace ompl
                 /** \brief The number of steps the control is applied for */
                 unsigned int steps{0};
 
+                /** \brief flag indicating if motion marks the end of a tree */
+                std::vector<Motion*> childeren{};
+
                 /** \brief The parent motion in the exploration tree */
                 Motion *parent{nullptr};
             };
+
+            std::shared_ptr<NearestNeighbors<Motion *>> getNearestNeighbors()
+            {
+                return nn_;
+            }
+
+            void addExistingTree(std::vector<Motion*> motions)
+            {
+                for (auto &m: motions)
+                {
+                    auto *nmotion = new Motion(siC_);
+                    nmotion->state = si_->cloneState(m->state);
+                    nmotion->control = siC_->cloneControl(m->control);
+                    nmotion->steps = m->steps;
+                    // add only the valid childeren
+                    for (auto c: m->childeren)
+                    {
+                        auto itr = std::find(motions.begin(), motions.end(), c);
+                        if (itr != motions.end())
+                            nmotion->childeren.push_back(c);
+                    }
+                    nmotion->parent = m->parent;
+                    nn_->add(nmotion);
+                }
+            }
+
+            Motion* getLastGoalMotion()
+            {
+                return lastGoalMotion_;
+            }
+            
+        protected:
 
             /** \brief Free the memory allocated by this planner */
             void freeMemory();

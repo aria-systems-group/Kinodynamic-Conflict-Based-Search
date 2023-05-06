@@ -38,6 +38,7 @@
 #define OMPL_MULTIROBOT_CONTROL_PLANNERS_KCBS_
 
 #include "ompl/multirobot/control/planners/PlannerIncludes.h"
+#include "ompl/control/planners/rrt/RRT.h"
 #include "ompl/control/PlannerData.h"
 #include "ompl/util/Exception.h"
 #include <boost/graph/adjacency_list.hpp>
@@ -139,12 +140,7 @@ namespace ompl
                     Constraint(int r): constrainedRobot_(r), constrainingSiC_(nullptr), timeSteps_(), constrainingStates_() {}
                     Constraint(int r, ompl::control::SpaceInformationPtr otherSiC): 
                         constrainedRobot_(r), constrainingSiC_(otherSiC), timeSteps_(), constrainingStates_() {}
-                    ~Constraint()
-                    {
-                        constrainingSiC_.reset();
-                        // for (auto &st: constrainingStates_)
-                        //     constrainingSiC_->freeState(st);
-                    }
+                    ~Constraint() = default;
                     unsigned int constrainedRobot_;
                     ompl::control::SpaceInformationPtr constrainingSiC_;
                     std::vector<int> timeSteps_;
@@ -160,20 +156,28 @@ namespace ompl
                 class Node
                 {
                 public:
-                    Node(): plan_(nullptr), parent_(nullptr), constraint_(nullptr), 
-                        cost_(std::numeric_limits<double>::max()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
+                    Node(const SpaceInformation *siC): plan_(nullptr), parent_(nullptr), constraint_(nullptr), 
+                        cost_(std::numeric_limits<double>::max()), name_(generateRandomName()), id_(-1)
+                    {
+                        llSolvers_.resize(siC->getIndividualCount(), nullptr);
+                    };
 
                     Node(const PlanControlPtr plan): plan_(plan), parent_(nullptr), constraint_(nullptr), 
-                        cost_(plan->length()), name_(generateRandomName()), id_(-1), llSolver_(nullptr) {};
+                        cost_(plan->length()), name_(generateRandomName()), id_(-1)
+                    {
+                        llSolvers_.resize(plan->getSpaceInformation()->getIndividualCount(), nullptr);
+                    };
 
                     ~Node()
                     {
                         plan_.reset();
                         parent_.reset();
                         constraint_.reset();
-                        if (llSolver_)
-                            llSolver_.reset();
-
+                        for (auto &p: llSolvers_)
+                        {
+                            if (p)
+                                p.reset();
+                        }
                     }
 
                     void setPlan(const PlanControlPtr &plan) {plan_ = plan;};
@@ -184,9 +188,24 @@ namespace ompl
 
                     void setCost(const double c) {cost_ = c;};
 
+                    void setLowLevelSolver(unsigned int index, ompl::base::PlannerPtr p)
+                    {
+                        llSolvers_[index] = p;
+                    }
+
+                    ompl::base::PlannerPtr getLowLevelSolver(unsigned int index)
+                    {
+                        return llSolvers_[index];
+                    }
+
+                    std::vector<ompl::base::PlannerPtr> getLowLevelSolvers()
+                    {
+                        return llSolvers_;
+                    }
+
                     void setID(const int id) {id_ = id;};
 
-                    void setLowLevelSolver(ompl::base::PlannerPtr &planner) {llSolver_ = planner;};
+                    // void setLowLevelSolver(ompl::base::PlannerPtr &planner) {llSolver_ = planner;};
 
                     const PlanControlPtr &getPlan() const {return plan_;};
 
@@ -225,7 +244,7 @@ namespace ompl
                         return label;
                     }
 
-                    ompl::base::PlannerPtr getLowLevelSolver() const {return llSolver_;};
+                    // ompl::base::PlannerPtr getLowLevelSolver() const {return llSolver_;};
 
                     // ompl::control::PlannerData* getPlannerData() const {return data_;};
                 
@@ -264,8 +283,8 @@ namespace ompl
                     /** \brief The ID of the node is equal to the order that this* was popped from the priority queue -- used by BoostGraph */
                     int id_;
 
-                    /** \brief The PlannerPtr responsible for filling this node. Only use during retry */
-                    ompl::base::PlannerPtr llSolver_;
+                    /** \brief The set of PlannerPtrs. Root node is the only one that fills this */
+                    std::vector<ompl::base::PlannerPtr> llSolvers_;
                 };
 
                 /** \Brief The comparator function that the priority queue uses to sort the nodes. */
@@ -286,6 +305,14 @@ namespace ompl
                         return std::hash<std::string>()(node->getName());
                     }
                 };
+
+                bool checkMotions(ompl::control::RRT::Motion* parent, ompl::control::RRT::Motion* current, const ConstraintPtr &constraint);
+
+                /** \brief test if a path segment is valid against a particular constraint */
+                // bool testPathAgainstConstraint(const unsigned int begin_step, ompl::control::PathControl &path, const ConstraintPtr &constraint) const;
+
+                /** \brief Prune the tree by removing nodes that violate the new constraint */
+                std::vector<ompl::control::RRT::Motion*> pruneTree(std::vector<ompl::control::RRT::Motion*> &tree, const ConstraintPtr constraint, ompl::control::RRT::Motion* goal);
 
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
                 void attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);

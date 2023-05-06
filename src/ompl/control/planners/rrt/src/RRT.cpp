@@ -96,14 +96,17 @@ ompl::base::PlannerStatus ompl::control::RRT::solve(const base::PlannerTerminati
     base::Goal *goal = pdef_->getGoal().get();
     auto *goal_s = dynamic_cast<base::GoalSampleableRegion *>(goal);
 
-    while (const base::State *st = pis_.nextStart())
+    if (nn_->size() == 0)
     {
-        auto *motion = new Motion(siC_);
-        si_->copyState(motion->state, st);
-        siC_->nullControl(motion->control);
-        nn_->add(motion);
+        while (const base::State *st = pis_.nextStart())
+        {
+            auto *motion = new Motion(siC_);
+            si_->copyState(motion->state, st);
+            siC_->nullControl(motion->control);
+            nn_->add(motion);
+        }
     }
-
+    
     if (nn_->size() == 0)
     {
         OMPL_ERROR("%s: There are no valid initial states!", getName().c_str());
@@ -169,6 +172,7 @@ ompl::base::PlannerStatus ompl::control::RRT::solve(const base::PlannerTerminati
                     siC_->copyControl(motion->control, rctrl);
                     motion->steps = 1;
                     motion->parent = lastmotion;
+                    motion->parent->childeren.push_back(motion);
                     lastmotion = motion;
                     nn_->add(motion);
                     double dist = 0.0;
@@ -206,6 +210,7 @@ ompl::base::PlannerStatus ompl::control::RRT::solve(const base::PlannerTerminati
                 siC_->copyControl(motion->control, rctrl);
                 motion->steps = cd;
                 motion->parent = nmotion;
+                motion->parent->childeren.push_back(motion);
 
                 nn_->add(motion);
                 double dist = 0.0;
