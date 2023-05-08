@@ -231,10 +231,10 @@ std::vector<ompl::multirobot::control::KCBS::Conflict> ompl::multirobot::control
     return confs;
 }
 
-void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicsts)
+void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicts)
 {
     // update the conflictCounter map with the newly found conflicts.
-    for (auto &c: conflicsts)
+    for (auto &c: conflicts)
     {
         conflictCounter_[std::make_pair(c.robots_[0], c.robots_[1])] += 1;
     }
@@ -268,16 +268,26 @@ const ompl::multirobot::control::KCBS::ConstraintPtr ompl::multirobot::control::
 
 std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneTree(std::vector<ompl::control::RRT::Motion*> &tree, const ConstraintPtr constraint, ompl::control::RRT::Motion* goal)
 {
-    auto start = std::chrono::high_resolution_clock::now();
+    // auto start = std::chrono::high_resolution_clock::now();
 
     std::unordered_map<ompl::control::RRT::Motion*, bool> visited;
     for (auto &m: tree)
         visited.insert({m, false});
 
     // get to the root node while removing the old path from the pruned tree
+    unsigned int beginning_step = constraint->timeSteps_.front() - 1;
     while (goal->parent)
     {
-        visited[goal] = true;
+        // get the number of steps traversed
+        auto gCpy = goal;
+        unsigned int gsteps = 0;
+        while (gCpy)
+        {
+            gsteps += gCpy->steps;
+            gCpy = gCpy->parent;
+        }
+        if (gsteps >= beginning_step)
+            visited[goal] = true;
         goal = goal->parent;
     }
     ompl::control::RRT::Motion* root = goal;
@@ -334,10 +344,10 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
         }// no need to check a motion we have already visited
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    double duration_s = (duration_ms.count() * 0.001);
-    std::cout << "Algorithm took " << duration_s << " to prune a tree of size " << tree.size() << " to size " << new_tree.size() << std::endl;
+    // auto end = std::chrono::high_resolution_clock::now();
+    // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    // double duration_s = (duration_ms.count() * 0.001);
+    // std::cout << "Algorithm took " << duration_s << " to prune a tree of size " << tree.size() << " to size " << new_tree.size() << std::endl;
     return new_tree;
 
 }
@@ -452,14 +462,14 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int index, No
         // prune the motions based on newest constraint
         auto new_motions = pruneTree(motions, node->getConstraint(), goal);
 
-        std::cout << "motions: " << motions.size() << std::endl;
-        std::cout << "new_tree: " << new_motions.size() << std::endl;
+        // std::cout << "motions: " << motions.size() << std::endl;
+        // std::cout << "new_tree: " << new_motions.size() << std::endl;
 
 
-        if (new_motions.size() == motions.size())
-        {
-            throw Exception(getName().c_str(), "MY ERROR when pruning tree");
-        }
+        // if (new_motions.size() == motions.size())
+        // {
+        //     throw Exception(getName().c_str(), "MY ERROR when pruning tree");
+        // }
 
         // create new planner and add pruned motions to its tree
         auto new_planner = siC_->allocatePlannerForIndividual(index);
@@ -537,10 +547,10 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         NodePtr currentNode = popNode();
 
         
-        if (currentNode->getParent())
-            std::cout << "popped node " << currentNode->getName() << " with parent " << currentNode->getParent()->getName() << " and replanned for " << currentNode->getConstraint()->constrainedRobot_ << std::endl;
-        else
-            std::cout << "popped node " << currentNode->getName() << std::endl;
+        // if (currentNode->getParent())
+        //     std::cout << "popped node " << currentNode->getName() << " with parent " << currentNode->getParent()->getName() << " and replanned for " << currentNode->getConstraint()->constrainedRobot_ << std::endl;
+        // else
+        //     std::cout << "popped node " << currentNode->getName() << std::endl;
 
         // if current node has not plan, then attempt to find one again
         if (currentNode->getCost() == std::numeric_limits<double>::max())
@@ -616,7 +626,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 nxtNode->setConstraint(new_constraint);
 
                 // attempt to replan and push node to priority queue
-                std::cout << "Replanning for " << new_constraint->constrainedRobot_ << std::endl;
+                // std::cout << "Replanning for " << new_constraint->constrainedRobot_ << std::endl;
                 attemptReplan(new_constraint->constrainedRobot_, nxtNode);
                 pushNode(nxtNode);
             }
