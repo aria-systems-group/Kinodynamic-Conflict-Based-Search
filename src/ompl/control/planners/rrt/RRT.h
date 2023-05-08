@@ -155,7 +155,7 @@ namespace ompl
                 unsigned int steps{0};
 
                 /** \brief flag indicating if motion marks the end of a tree */
-                std::vector<Motion*> childeren{};
+                // std::vector<Motion*> childeren{};
 
                 /** \brief The parent motion in the exploration tree */
                 Motion *parent{nullptr};
@@ -174,13 +174,13 @@ namespace ompl
                     nmotion->state = si_->cloneState(m->state);
                     nmotion->control = siC_->cloneControl(m->control);
                     nmotion->steps = m->steps;
-                    // add only the valid childeren
-                    for (auto c: m->childeren)
-                    {
-                        auto itr = std::find(motions.begin(), motions.end(), c);
-                        if (itr != motions.end())
-                            nmotion->childeren.push_back(c);
-                    }
+                    // // add only the valid childeren
+                    // for (auto c: m->childeren)
+                    // {
+                    //     auto itr = std::find(motions.begin(), motions.end(), c);
+                    //     if (itr != motions.end())
+                    //         nmotion->childeren.push_back(c);
+                    // }
                     nmotion->parent = m->parent;
                     nn_->add(nmotion);
                 }

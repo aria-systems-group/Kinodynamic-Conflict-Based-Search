@@ -38,7 +38,7 @@
 #include <chrono>
 
 ompl::multirobot::control::KCBS::KCBS(const ompl::multirobot::control::SpaceInformationPtr &si): 
-    ompl::multirobot::base::Planner(si, "K-CBS"), llSolveTime_(1.), mergeBound_(std::numeric_limits<int>::max()), numNodesExpanded_(0)
+    ompl::multirobot::base::Planner(si, "K-CBS"), llSolveTime_(1.), mergeBound_(std::numeric_limits<int>::max()), numNodesExpanded_(0), numApproxSolutions_(0), rootSolveTime_(-1)
 {
     siC_ = si.get();
 
@@ -55,6 +55,9 @@ void ompl::multirobot::control::KCBS::clear()
 {
     base::Planner::clear();
     freeMemory();
+    numNodesExpanded_ = 0;
+    numApproxSolutions_ = 0;
+    rootSolveTime_ = -1;
 }
 
 void ompl::multirobot::control::KCBS::freeMemory()
@@ -85,7 +88,6 @@ void ompl::multirobot::control::KCBS::freeMemory()
     // clear the boost graph
     tree_.clear();
     treeMap_.clear();
-    numNodesExpanded_ = 0;
 }
 
 void ompl::multirobot::control::KCBS::setup()
@@ -270,9 +272,17 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
 {
     // auto start = std::chrono::high_resolution_clock::now();
 
-    std::unordered_map<ompl::control::RRT::Motion*, bool> visited;
+    std::unordered_map<ompl::control::RRT::Motion*, bool> visited_map;
+    std::unordered_map<ompl::control::RRT::Motion*, std::vector<ompl::control::RRT::Motion*>> childeren_map;
     for (auto &m: tree)
-        visited.insert({m, false});
+    {
+        visited_map.insert({m, false});
+        auto itr = childeren_map.find(m->parent);
+        if (itr == childeren_map.end())
+            childeren_map[m->parent] = {m};
+        else
+            childeren_map[m->parent].push_back(m);
+    }
 
     // get to the root node while removing the old path from the pruned tree
     unsigned int beginning_step = constraint->timeSteps_.front() - 1;
@@ -287,7 +297,7 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
             gCpy = gCpy->parent;
         }
         if (gsteps >= beginning_step)
-            visited[goal] = true;
+            visited_map[goal] = true;
         goal = goal->parent;
     }
     ompl::control::RRT::Motion* root = goal;
@@ -303,19 +313,19 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
         auto m = stack.top();
         stack.pop();
 
-        if (!visited[m])
+        if (!visited_map[m])
         {
             // if we have not visited this motion before, check to see if motion is valid
-            visited[m] = true;
+            visited_map[m] = true;
                 
             bool isValid = checkMotions(m->parent, m, constraint);
             if (isValid)
             {
                 new_tree.push_back(m); // motion is valid -- its childeren might be also
-                auto childeren = m->childeren;
+                auto childeren = childeren_map[m];
                 for (auto itr = childeren.begin(); itr != childeren.end(); ++itr)
                 {
-                    if (!visited[*itr])
+                    if (!visited_map[*itr])
                         stack.push(*itr);
                 } 
             }
@@ -325,7 +335,7 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
                 std::stack<ompl::control::RRT::Motion*> stack2;
                 
                 // add all immediate childeren of m to the new stack
-                auto childeren = m->childeren;
+                auto childeren = childeren_map[m];
                 for (auto itr = childeren.begin(); itr != childeren.end(); ++itr)
                     stack2.push(*itr);
 
@@ -334,9 +344,9 @@ std::vector<ompl::control::RRT::Motion*> ompl::multirobot::control::KCBS::pruneT
                     auto m = stack2.top();
                     stack2.pop();
 
-                    visited[m] = true;
+                    visited_map[m] = true;
 
-                    auto grandChilderen = m->childeren;
+                    auto grandChilderen = childeren_map[m];
                     for (auto itr = grandChilderen.begin(); itr != grandChilderen.end(); ++itr)
                         stack2.push(*itr);
                 }
@@ -462,15 +472,6 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int index, No
         // prune the motions based on newest constraint
         auto new_motions = pruneTree(motions, node->getConstraint(), goal);
 
-        // std::cout << "motions: " << motions.size() << std::endl;
-        // std::cout << "new_tree: " << new_motions.size() << std::endl;
-
-
-        // if (new_motions.size() == motions.size())
-        // {
-        //     throw Exception(getName().c_str(), "MY ERROR when pruning tree");
-        // }
-
         // create new planner and add pruned motions to its tree
         auto new_planner = siC_->allocatePlannerForIndividual(index);
         new_planner->setProblemDefinition(pdef_->getIndividual(index));
@@ -499,6 +500,8 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int index, No
         node->setPlan(new_plan);
         node->setCost(new_plan->length());
     }
+    else
+        numApproxSolutions_ += 1;
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::base::PlannerTerminationCondition &ptc)
@@ -510,18 +513,46 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     // create root node
     NodePtr root = std::make_shared<Node>(siC_);
 
-    // create root node of constraint tree with an initial path for every individual
-    PlanControlPtr initalPlan = std::make_shared<PlanControl>(si_);
+    // // create root node of constraint tree with an initial path for every individual
+    // auto start = std::chrono::high_resolution_clock::now();
+    // PlanControlPtr initalPlan = std::make_shared<PlanControl>(si_);
 
-    for (unsigned int index = 0; index < siC_->getIndividualCount(); index++)
+    // for (unsigned int index = 0; index < siC_->getIndividualCount(); index++)
+    // {
+    //     llSolvers_[index]->solve(ptc);
+    //     if (llSolvers_[index]->getProblemDefinition()->hasExactSolution())
+    //     {
+    //         auto path = std::make_shared<ompl::control::PathControl>(*llSolvers_[index]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+    //         initalPlan->append(path);
+    //         // save the planner
+    //         root->setLowLevelSolver(index, llSolvers_[index]);
+    //     }
+    //     else
+    //     {
+    //         OMPL_INFORM("%s: Unable to find intial plan. Exiting with no solution.", getName().c_str());
+    //         return {false, false};
+    //     }
+    // }
+    // auto end = std::chrono::high_resolution_clock::now();
+    // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    // double duration_s = (duration_ms.count() * 0.001);
+    // rootSolveTime_ = duration_s;
+
+    // create root node of constraint tree with an initial path for every individual
+    auto start = std::chrono::high_resolution_clock::now();
+    PlanControlPtr initalPlan = std::make_shared<PlanControl>(si_);
+    for (auto itr = llSolvers_.begin(); itr != llSolvers_.end(); itr++) 
     {
-        llSolvers_[index]->solve(ptc);
-        if (llSolvers_[index]->getProblemDefinition()->hasExactSolution())
+        // attempt to find an exact initial path to goal until ptc returns true
+        while ( !(*itr)->getProblemDefinition()->hasExactSolution() && !ptc )
         {
-            auto path = std::make_shared<ompl::control::PathControl>(*llSolvers_[index]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+            (*itr)->solve(llSolveTime_);
+        }
+        if (!ptc)
+        {
+            auto path = std::make_shared<ompl::control::PathControl>(*(*itr)->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
             initalPlan->append(path);
-            // save the planner
-            root->setLowLevelSolver(index, llSolvers_[index]);
+            root->setLowLevelSolver(std::distance(llSolvers_.begin(), itr), (*itr));
         }
         else
         {
@@ -529,6 +560,10 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
             return {false, false};
         }
     }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    double duration_s = (duration_ms.count() * 0.001);
+    rootSolveTime_ = duration_s;
     
     root->setPlan(initalPlan);
     root->setCost(initalPlan->length()); 

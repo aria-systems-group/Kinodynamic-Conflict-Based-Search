@@ -172,7 +172,7 @@ ompl::base::PlannerStatus ompl::control::RRT::solve(const base::PlannerTerminati
                     siC_->copyControl(motion->control, rctrl);
                     motion->steps = 1;
                     motion->parent = lastmotion;
-                    motion->parent->childeren.push_back(motion);
+                    // motion->parent->childeren.push_back(motion);
                     lastmotion = motion;
                     nn_->add(motion);
                     double dist = 0.0;
@@ -210,7 +210,7 @@ ompl::base::PlannerStatus ompl::control::RRT::solve(const base::PlannerTerminati
                 siC_->copyControl(motion->control, rctrl);
                 motion->steps = cd;
                 motion->parent = nmotion;
-                motion->parent->childeren.push_back(motion);
+                // motion->parent->childeren.push_back(motion);
 
                 nn_->add(motion);
                 double dist = 0.0;
