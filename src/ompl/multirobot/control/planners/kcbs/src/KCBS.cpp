@@ -605,11 +605,11 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 break;
             }
 
-            // for debugging
-            for (auto &c: confs)
-            {
-                std::cout << "conflict between " << c.robots_[0] << " and " << c.robots_[1] << " at time " << c.timeStep_ << " with states " << c.states_[0] << " and " << c.states_[1]  << std::endl;
-            }
+            // // for debugging
+            // for (auto &c: confs)
+            // {
+            //     std::cout << "conflict between " << c.robots_[0] << " and " << c.robots_[1] << " at time " << c.timeStep_ << " with states " << c.states_[0] << " and " << c.states_[1]  << std::endl;
+            // }
 
             // update the conflictCounter_;
             updateConflictCounter(confs);
