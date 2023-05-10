@@ -100,6 +100,9 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
 ompl::base::PlannerStatus ompl::multirobot::control::PP::solve(const ompl::base::PlannerTerminationCondition &ptc)
 {
     checkValidity();
+
+    OMPL_INFORM("%s: Starting planning. ", getName().c_str());
+    
     auto plan(std::make_shared<PlanControl>(si_));
     for (unsigned int r = 0; r < si_->getIndividualCount(); ++r)
     {
