@@ -311,7 +311,7 @@ bool ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
     }
 }
 
-int ompl::multirobot::control::KCBS::evaluateCost(unsigned int robotIdx, const std::vector<Conflict> confs)
+int ompl::multirobot::control::KCBS::evaluateCost(const std::vector<Conflict> confs)
 {
     // update the conflictCounter_;
     updateConflictCounter(confs);
@@ -320,19 +320,8 @@ int ompl::multirobot::control::KCBS::evaluateCost(unsigned int robotIdx, const s
     std::vector<Conflict> unique_pairs;
     std::unique_copy(confs.begin(), confs.end(), std::back_inserter(unique_pairs),
                      [](Conflict c1, Conflict c2) { return c1.robots_[0] == c2.robots_[0] && c1.robots_[1] == c2.robots_[1]; });
-
-    // find the number of de-tangling that must occur after replanning
-    unsigned int cost = 0;
-
-    auto itr = unique_pairs.begin();
-    std::advance(itr, 1);
-    for (; itr != unique_pairs.end(); ++itr)
-    {
-        if (itr->robots_[0] != robotIdx && itr->robots_[1] != robotIdx)
-            cost++;
-    }
     // return the number of unique pairs we have minus the first one (it will be resolved)
-    return cost;
+    return unique_pairs.size();
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::base::PlannerTerminationCondition &ptc)
@@ -380,7 +369,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         // for debugging
         root->setConflicts(confs);
         updateConflictCounter(confs);
-        root->setCost(0); // cost for root node is technically undefined
+        root->setCost(evaluateCost(confs)); // cost for root node is technically undefined
         pushNode(root);
     }
 
@@ -408,16 +397,13 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 else
                 {
                     currentNode->setConflicts(confs);
-                    currentNode->setCost(0); // cost metric is undefined for this portion bc there is no constraint
+                    currentNode->setCost(evaluateCost(confs)); // cost metric is undefined for this portion bc there are no conflicts
                 }
             }
             pushNode(currentNode);
         }
         else
         {
-            // find conflicts in the current plan
-            // std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
-
             auto confs = currentNode->getConflicts();
             auto itr = confs.begin();
             std::vector<Conflict> first_pair = {*itr};
@@ -495,7 +481,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                     else
                     {
                         nxtNode->setConflicts(confs_nxt);
-                        nxtNode->setCost(evaluateCost(new_constraint->constrainedRobot_, confs_nxt)); // cost is number of detangles
+                        nxtNode->setCost(evaluateCost(confs_nxt)); // cost is number of detangles
                         // std::cout << "Press Enter to Continue";
                         // std::cin.ignore();
                     }

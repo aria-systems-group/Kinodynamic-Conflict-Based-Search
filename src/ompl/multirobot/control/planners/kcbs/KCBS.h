@@ -312,8 +312,8 @@ namespace ompl
                     }
                 };
 
-                /** \brief A cost of a node is equivalent to the number of conflict pairs it has minus the first one (because it will be resolved). */
-                int evaluateCost(unsigned int robotIdx, const std::vector<Conflict> confs);
+                /** \brief A cost of a node is equivalent to the number of unique conflict pairs */
+                int evaluateCost(const std::vector<Conflict> confs);
 
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
                 bool attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
