@@ -85,10 +85,10 @@ namespace ompl
                 // PathGeometric(const base::SpaceInformationPtr &si, 
                 //     std::vector<const base::State *> &states);
 
-                // ~PathGeometric() override
-                // {
-                //     freeMemory();
-                // }
+                ~PlanControl() override
+                {
+                    freeMemory();
+                }
 
                 // /** \brief Assignment operator */
                 // PathGeometric &operator=(const PathGeometric &other);
@@ -276,8 +276,8 @@ namespace ompl
                 // void clear();
 
             protected:
-                // /** \brief Free the memory corresponding to the states on this path */
-                // void freeMemory();
+                /** \brief Free the memory corresponding to the states on this path */
+                void freeMemory();
 
                 /** \brief Copy data to this path from another path instance */
                 void copyFrom(const PlanControl &other);
