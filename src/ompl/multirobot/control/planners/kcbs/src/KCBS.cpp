@@ -68,11 +68,11 @@ void ompl::multirobot::control::KCBS::freeMemory()
         pq_.pop();
         n.reset();
     }
-    // clear the priority queue
     pq_ = std::priority_queue<NodePtr, std::vector<NodePtr>, NodeCompare>();
     // free memory of every node
     for (auto n: allNodesSet_)
         n.reset();
+    allNodesSet_.clear();
     // free memory of every low-level solver
     for (auto &p: llSolvers_)
         p.reset();
@@ -355,6 +355,10 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     double duration_s = (duration_ms.count() * 0.001);
     rootSolveTime_ = duration_s;
+
+    // create root node
+    NodePtr root = std::make_shared<Node>(initalPlan);
+    pushNode(root);
 
     NodePtr solution = nullptr;
     bool solved = false;

@@ -86,3 +86,9 @@ void ompl::multirobot::control::PlanControl::printAsMatrix(std::ostream &out, st
         paths_[i]->printAsMatrix(out);
     }
 }
+
+void ompl::multirobot::control::PlanControl::freeMemory()
+{
+    for (auto &path: paths_)
+        path.reset(); 
+}
