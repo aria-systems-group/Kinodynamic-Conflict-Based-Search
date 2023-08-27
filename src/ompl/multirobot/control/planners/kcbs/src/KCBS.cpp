@@ -502,6 +502,18 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int index, No
     }
     else
         numApproxSolutions_ += 1;
+    // FIXME: Does this need to be here for rapid-replanning to work?
+    // {
+    //     numApproxSolutions_ += 1;
+    //     // save the planner prior to exit only if planner not already saved
+    //     if (!retry)
+    //     {
+    //         // need to save the existing low-level solver to the node and create a new one for the rest of the system
+    //         node->setLowLevelSolver(llSolvers_[robot]);
+    //         llSolvers_[robot] = siC_->allocatePlannerForIndividual(robot);
+    //         llSolvers_[robot]->setProblemDefinition(pdef_->getIndividual(robot));
+    //     }
+    // }
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::base::PlannerTerminationCondition &ptc)
@@ -564,9 +576,10 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     double duration_s = (duration_ms.count() * 0.001);
     rootSolveTime_ = duration_s;
-    
+
     root->setPlan(initalPlan);
     root->setCost(initalPlan->length()); 
+
     pushNode(root);
 
     // auto test = root->getLowLevelSolvers();

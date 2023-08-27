@@ -92,4 +92,3 @@ void ompl::multirobot::control::PlanControl::freeMemory()
     for (auto &path: paths_)
         path.reset(); 
 }
-
