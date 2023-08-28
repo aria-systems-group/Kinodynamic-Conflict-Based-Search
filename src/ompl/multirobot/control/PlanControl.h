@@ -174,6 +174,11 @@ namespace ompl
                     return paths_[index];
                 }
 
+                void replace(unsigned int index, ompl::control::PathControlPtr path)
+                {
+                    paths_[index] = path;
+                }
+
                 // /** \brief Add a state at the middle of each segment */
                 // void subdivide();
 
