@@ -265,7 +265,7 @@ const ompl::multirobot::control::KCBS::ConstraintPtr ompl::multirobot::control::
     return constraint;
 }
 
-void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr &node, const bool retry)
+void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr node, const bool retry)
 {
     // collect all of the constraints on robot by traversing constraint tree back to root node
     auto nCpy = node;
@@ -328,6 +328,7 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
             llSolvers_[robot]->setProblemDefinition(pdef_->getIndividual(robot));
         }
     }
+    pushNode(node);
 }
 
 void ompl::multirobot::control::KCBS::parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx)
@@ -421,7 +422,6 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         {
             // use existing tree to attempt a replan
             attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
-            pushNode(currentNode);
         }
         else
         {
@@ -477,6 +477,8 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
             // constraint2 is given to robot 2 which forces it to avoid the states of robot 0 for all steps inside dt=[615, 665]
             // then, replan for robots 0 and 2 after adding the constraints as dynamic obstacles
 
+            std::vector<std::thread> threads;
+
             for (unsigned int r = 0; r < 2; r++)
             {
                 // create a new constraint
@@ -490,8 +492,13 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 nxtNode->setConstraint(new_constraint);
 
                 // attempt to replan and push node to priority queue
-                attemptReplan(new_constraint->constrainedRobot_, nxtNode);
-                pushNode(nxtNode);
+                threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
+                    this, new_constraint->constrainedRobot_, nxtNode, false));
+            }
+
+            // Join all of the threads.
+            for (auto& thread : threads) {
+                thread.join();
             }
         }
     }

@@ -305,7 +305,7 @@ namespace ompl
                 void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx);
 
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
-                void attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
+                void attemptReplan(const unsigned int robot, NodePtr node, const bool retry = false);
 
                 /** \brief Create a constraint from the conflicts */
                 const ConstraintPtr createConstraint(const unsigned int robot, std::vector<Conflict> &confs);
