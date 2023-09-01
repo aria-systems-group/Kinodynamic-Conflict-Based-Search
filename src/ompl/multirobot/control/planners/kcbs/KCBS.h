@@ -49,6 +49,7 @@
 #include <map>
 #include <unordered_set>
 #include <chrono>
+#include <thread>
 
 
 namespace ompl
@@ -105,13 +106,16 @@ namespace ompl
 
                 unsigned int getNumberOfApproximateSolutions() const {return numApproxSolutions_;};
 
-                const double getRootSolveTime() const {return rootSolveTime_;};
+                double getRootSolveTime() const {return rootSolveTime_;};
 
                 /** Set the low-level solve time. */
                 void setLowLevelSolveTime(const double t) {llSolveTime_ = t;};
 
                 /** Get the low-level solve time. */
                 double getLowLevelSolveTime() const {return llSolveTime_;};
+
+                /** Setter function for the number of workers (threads) */
+                void setNumThreads(const unsigned int value) {numThreads_ = value;};
 
                 /** \brief Output the constraint tree in graphViz format. */
                 void printConstraintTree(std::ostream &out)
@@ -294,8 +298,14 @@ namespace ompl
                     }
                 };
 
+                /** \brief Compute the initial solution using multiple threads */
+                void parallelRootSolution(PlanControlPtr plan);
+
+                /** \brief generates trajectories for robots in range [startIdx, endIdx) and saves them into plan */
+                void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx);
+
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
-                void attemptReplan(const unsigned int robot, NodePtr &node, const bool retry = false);
+                void attemptReplan(const unsigned int robot, NodePtr node, const bool retry = false);
 
                 /** \brief Create a constraint from the conflicts */
                 const ConstraintPtr createConstraint(const unsigned int robot, std::vector<Conflict> &confs);
@@ -352,6 +362,9 @@ namespace ompl
                 unsigned int numApproxSolutions_;
 
                 double rootSolveTime_;
+
+                /** \brief The number of workers (threads) used to generate the root node */
+                unsigned int numThreads_{3};
 
                 /** \brief Another instance of K-CBS for solving the merged problem -- not always used but saved for memory purposes. */
                 KCBSPtr mergerPlanner_{nullptr};

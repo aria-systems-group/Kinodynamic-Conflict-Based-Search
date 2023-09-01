@@ -265,7 +265,7 @@ const ompl::multirobot::control::KCBS::ConstraintPtr ompl::multirobot::control::
     return constraint;
 }
 
-void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr &node, const bool retry)
+void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, NodePtr node, const bool retry)
 {
     // collect all of the constraints on robot by traversing constraint tree back to root node
     auto nCpy = node;
@@ -328,6 +328,57 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
             llSolvers_[robot]->setProblemDefinition(pdef_->getIndividual(robot));
         }
     }
+    pushNode(node);
+}
+
+void ompl::multirobot::control::KCBS::parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx)
+{
+    for (unsigned int i = startIdx; i < endIdx; i++)
+    {
+        while (!llSolvers_[i]->getProblemDefinition()->hasExactSolution())
+            llSolvers_[i]->solve(llSolveTime_);
+        auto path = std::make_shared<ompl::control::PathControl>(*llSolvers_[i]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
+        plan->replace(i, path);
+    }
+}
+
+void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
+{
+    // Create an array of threads.
+    std::vector<std::thread> threads;
+
+    // Divide the loop into equal segments.
+    const unsigned int num_workers = std::min(siC_->getIndividualCount(), numThreads_); // check that there is a way for the system to tell us how many threads there are
+    const unsigned int jobs_per_thread = siC_->getIndividualCount() / num_workers;
+    const unsigned int remainder = siC_->getIndividualCount() - (jobs_per_thread * num_workers);
+
+    OMPL_INFORM("%s: Assigning %d workers to plan paths for %d robots.", getName().c_str(), num_workers, siC_->getIndividualCount());
+
+    // Create a thread for each segment.
+    for (unsigned int i = 0; i < num_workers; i++)
+    {
+        if (i < (num_workers - 1))
+        {
+            // plan for the assigned work segment
+            unsigned int start = i * jobs_per_thread;
+            unsigned int end = (i + 1) * jobs_per_thread;
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
+                this, plan, start, end));
+        }
+        else
+        {
+            // the last thread gets to plan for assigned work portion PLUS the remainder 
+            unsigned int start = i * jobs_per_thread;
+            unsigned int end = ((i + 1) * jobs_per_thread) + remainder;
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
+                this, std::ref(plan), start, end));
+        }
+    }
+
+    // Join all of the threads.
+    for (auto& thread : threads) {
+        thread.join();
+    }
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::base::PlannerTerminationCondition &ptc)
@@ -336,27 +387,19 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
 
     OMPL_INFORM("%s: Starting planning. ", getName().c_str());
 
-    // create root node of constraint tree with an initial path for every individual
+    // start the timer for root solution
     auto start = std::chrono::high_resolution_clock::now();
+    // initialize the initial plan and fill it with the required size
     PlanControlPtr initalPlan = std::make_shared<PlanControl>(si_);
-    for (auto itr = llSolvers_.begin(); itr != llSolvers_.end(); itr++) 
+    for (unsigned int i = 0; i < siC_->getIndividualCount(); i++)
     {
-        // attempt to find an exact initial path to goal until ptc returns true
-        while ( !(*itr)->getProblemDefinition()->hasExactSolution() && !ptc )
-        {
-            (*itr)->solve(llSolveTime_);
-        }
-        if (!ptc)
-        {
-            auto path = std::make_shared<ompl::control::PathControl>(*(*itr)->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
-            initalPlan->append(path);
-        }
-        else
-        {
-            OMPL_INFORM("%s: Unable to find intial plan. Exiting with no solution.", getName().c_str());
-            return {false, false};
-        }
+        auto dummy_path = std::make_shared<ompl::control::PathControl>(siC_->getIndividual(i));
+        initalPlan->append(dummy_path);
     }
+
+    // get the initial solution
+    parallelRootSolution(initalPlan);
+    
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     double duration_s = (duration_ms.count() * 0.001);
@@ -379,7 +422,6 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         {
             // use existing tree to attempt a replan
             attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
-            pushNode(currentNode);
         }
         else
         {
@@ -435,6 +477,8 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
             // constraint2 is given to robot 2 which forces it to avoid the states of robot 0 for all steps inside dt=[615, 665]
             // then, replan for robots 0 and 2 after adding the constraints as dynamic obstacles
 
+            std::vector<std::thread> threads;
+
             for (unsigned int r = 0; r < 2; r++)
             {
                 // create a new constraint
@@ -448,8 +492,13 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                 nxtNode->setConstraint(new_constraint);
 
                 // attempt to replan and push node to priority queue
-                attemptReplan(new_constraint->constrainedRobot_, nxtNode);
-                pushNode(nxtNode);
+                threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
+                    this, new_constraint->constrainedRobot_, nxtNode, false));
+            }
+
+            // Join all of the threads.
+            for (auto& thread : threads) {
+                thread.join();
             }
         }
     }
