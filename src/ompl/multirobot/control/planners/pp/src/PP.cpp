@@ -88,11 +88,20 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
     for (auto r = individual + 1; r < si_->getIndividualCount(); r++)
     {
         double time = 0.;
+        // add the path as dynamic obstacles
         for (unsigned int step = 0; step < path->getStateCount(); step++)
         {
             auto state =  siC_->getIndividual(individual)->cloneState(states[step]);
             si_->addDynamicObstacleForIndividual(r, individual, state, time);
             time += durs[step];
+        }
+        // add the robot staying still at goal as dynamic obstacle
+        const unsigned int max_steps = 100000;
+        for (unsigned int s = 0; s < max_steps; s++)
+        {
+            auto goal_state =  siC_->getIndividual(individual)->cloneState(states.back());
+            time += durs.back();
+            si_->addDynamicObstacleForIndividual(r, individual, goal_state, time);
         }
     }
 }
