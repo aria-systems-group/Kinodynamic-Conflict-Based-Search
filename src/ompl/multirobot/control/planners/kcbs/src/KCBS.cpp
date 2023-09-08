@@ -426,20 +426,20 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
         else // already reserved, just push to queue for later use
             pushNode(currentNode);
     }
-    else if (currentNode->getCost() == 0) // node was reserved last time we tried to find a plan
-    {
-        // check it constrained robot is already reserved by someone else
-        auto reserved_itr = std::find(resevered.begin(), resevered.end(), currentNode->getConstraint()->constrainedRobot_);
-        if (reserved_itr == resevered.end()) // not reserved, proceed to plan for it
-        {
-            // reserve robot
-            resevered.push_back(currentNode->getConstraint()->constrainedRobot_);
-            // attempt replan
-            attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, false);
-        }
-        else
-            pushNode(currentNode);
-    }
+    // else if (currentNode->getCost() == 0) // node was reserved last time we tried to find a plan
+    // {
+    //     // check it constrained robot is already reserved by someone else
+    //     auto reserved_itr = std::find(resevered.begin(), resevered.end(), currentNode->getConstraint()->constrainedRobot_);
+    //     if (reserved_itr == resevered.end()) // not reserved, proceed to plan for it
+    //     {
+    //         // reserve robot
+    //         resevered.push_back(currentNode->getConstraint()->constrainedRobot_);
+    //         // attempt replan
+    //         attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, false);
+    //     }
+    //     else
+    //         pushNode(currentNode);
+    // }
     else
     {
         // find conflicts in the current plan
@@ -495,34 +495,35 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
         // constraint2 is given to robot 2 which forces it to avoid the states of robot 0 for all steps inside dt=[615, 665]
         // then, replan for robots 0 and 2 after adding the constraints as dynamic obstacles
 
-        std::vector<std::thread> threads;
-
+        std::vector<ConstraintPtr> new_constraints;
         for (unsigned int r = 0; r < 2; r++)
         {
             // create a new constraint
-            const ConstraintPtr new_constraint = createConstraint(r, confs);
+            ConstraintPtr new_constraint = createConstraint(r, confs);
+            new_constraints.push_back(new_constraint);
+            // check it constrained robot is already reserved by someone else
+            auto reserved_itr = std::find(resevered.begin(), resevered.end(), new_constraint->constrainedRobot_);
+            if (reserved_itr != resevered.end()) // reserved and cannot expand from this node
+            {
+                // push currentNode back into the queue and end function call
+                pushNode(currentNode);
+                return;
+            }
+        }
 
+        // good news! -- we can expand from this node
+        std::vector<std::thread> threads;
+        for (unsigned int r = 0; r < 2; r++)
+        {
             // create a new node to house the new constraint, also assign a parent
             NodePtr nxtNode = std::make_shared<Node>();
             nxtNode->setParent(currentNode);
-            nxtNode->setConstraint(new_constraint);
-
-            // check it constrained robot is already reserved by someone else
-            auto reserved_itr = std::find(resevered.begin(), resevered.end(), new_constraint->constrainedRobot_);
-            if (reserved_itr == resevered.end()) // not reserved, proceed to plan for it
-            {
-                // reserve robot
-                resevered.push_back(new_constraint->constrainedRobot_);
-                // attempt to replan and push node to priority queue
-                threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
-                    this, new_constraint->constrainedRobot_, nxtNode, false));
-            }
-            else // already reserved, just push to queue for later use
-            {
-                // make cost 0 s.t. we can expand from it next time (hopefully)
-                nxtNode->setCost(0);
-                pushNode(nxtNode);
-            }   
+            nxtNode->setConstraint(new_constraints[r]);
+            // reserve robot
+            resevered.push_back(new_constraints[r]->constrainedRobot_);
+            // attempt to replan and push node to priority queue
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
+                this, new_constraints[r]->constrainedRobot_, nxtNode, false)); 
         }
         // Join all of the threads.
         for (auto& thread : threads) {
