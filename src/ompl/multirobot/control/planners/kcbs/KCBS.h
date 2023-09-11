@@ -107,12 +107,6 @@ namespace ompl
 
                 double getRootSolveTime() const {return rootSolveTime_;};
 
-                unsigned int getNumberOfNodesExpanded() const {return numNodesExpanded_;};
-
-                unsigned int getNumberOfApproximateSolutions() const {return numApproxSolutions_;};
-
-                const double getRootSolveTime() const {return rootSolveTime_;};
-
                 /** Set the low-level solve time. */
                 void setLowLevelSolveTime(const double t) {llSolveTime_ = t;};
 

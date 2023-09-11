@@ -367,10 +367,6 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     double duration_s = (duration_ms.count() * 0.001);
     rootSolveTime_ = duration_s;
 
-    // create root node
-    NodePtr root = std::make_shared<Node>(initalPlan);
-    pushNode(root);
-
     NodePtr solution = nullptr;
     bool solved = false;
 
