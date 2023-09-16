@@ -37,6 +37,33 @@
 #include "ompl/base/StateValidityChecker.h"
 #include "ompl/base/SpaceInformation.h"
 
+bool ompl::base::StateValidityChecker::isValid(const State *state, const double time)
+{
+    if (dynObstacles_.empty())
+        return isValid(state);
+    else
+    {
+        if (isValid(state))
+        {
+            int t_key = std::round(time * scalingFactor_);
+            auto obsAtTime = dynObstacles_.find(t_key);
+            if (obsAtTime != dynObstacles_.end())
+            {
+                for (auto st = obsAtTime->second.begin(); st != obsAtTime->second.end(); st++)
+                {
+                    if (!areStatesValid(state, *st))
+                        return false;
+                }
+                return true;
+            }
+            else
+                return true;
+        }
+        else
+            return false;
+    }
+}
+
 void ompl::base::StateValidityChecker::clearDynamicObstacles()
 {
     for (auto t_itr = dynObstacles_.begin(); t_itr != dynObstacles_.end(); t_itr++)

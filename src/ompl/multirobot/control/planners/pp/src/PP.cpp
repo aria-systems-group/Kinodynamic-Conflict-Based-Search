@@ -85,14 +85,14 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
     path->interpolate();
     auto states = path->getStates();
     auto durs = path->getControlDurations();
-    for (auto r = individual + 1; r < si_->getIndividualCount(); r++)
+    for (auto r = individual + 1; r < siC_->getIndividualCount(); r++)
     {
         double time = 0.;
         // add the path as dynamic obstacles
         for (unsigned int step = 0; step < path->getStateCount(); step++)
         {
             auto state =  siC_->getIndividual(individual)->cloneState(states[step]);
-            si_->addDynamicObstacleForIndividual(r, individual, state, time);
+            siC_->getIndividual(r)->addDynamicObstacle(time, siC_->getIndividual(individual), state);
             time += durs[step];
         }
         // add the robot staying still at goal as dynamic obstacle
@@ -114,11 +114,9 @@ ompl::base::PlannerStatus ompl::multirobot::control::PP::solve(const ompl::base:
 {
     checkValidity();
     auto plan(std::make_shared<PlanControl>(si_));
-    for (unsigned int r = 0; r < si_->getIndividualCount(); ++r)
+    for (unsigned int r = 0; r < siC_->getIndividualCount(); ++r)
     {
-        /* plan for individual r while treating individuals 1, ..., r-1 as dynamic obstacles 
-            Note: It is theoretically possible to use any planner from ompl::control. We only use RRT for now.
-        */
+        // plan for individual r while treating individuals 1, ..., r-1 as dynamic obstacles 
         ompl::base::PlannerStatus solved = llSolvers_[r]->solve(ptc);
         if (solved == ompl::base::PlannerStatus::EXACT_SOLUTION)
         {
