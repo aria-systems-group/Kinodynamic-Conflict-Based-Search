@@ -342,6 +342,35 @@ void ompl::multirobot::control::KCBS::parallelRootSolutionHelper(PlanControlPtr 
     }
 }
 
+std::vector<unsigned int> ompl::multirobot::control::KCBS::split(const unsigned int jobs, const unsigned int workers)
+{
+    std::vector<unsigned int> num_jobs_per_workers;
+    // If x % n == 0 then the minimum
+    // difference is 0 and all
+    // numbers are x / n
+    if (jobs % workers == 0)
+    {
+        for(unsigned int i=0; i < workers; i++)
+            num_jobs_per_workers.push_back(jobs / workers);
+    }
+    else
+    {
+ 
+        // up to n-(x % n) the values will be x / n
+        // after that, the values will be x / n + 1
+        unsigned int zp = workers - (jobs % workers);
+        unsigned int pp = jobs / workers;
+        for(unsigned int i=0; i < workers; i++)
+        {
+            if (i >= zp)
+                num_jobs_per_workers.push_back(pp + 1);
+            else
+                num_jobs_per_workers.push_back(pp);
+        }
+    }
+    return num_jobs_per_workers;
+}
+
 void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
 {
     // Create an array of threads.
@@ -349,35 +378,157 @@ void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
 
     // Divide the loop into equal segments.
     const unsigned int num_workers = std::min(siC_->getIndividualCount(), numThreads_); // check that there is a way for the system to tell us how many threads there are
-    const unsigned int jobs_per_thread = siC_->getIndividualCount() / num_workers;
-    const unsigned int remainder = siC_->getIndividualCount() - (jobs_per_thread * num_workers);
 
-    OMPL_INFORM("%s: Assigning %d workers to plan paths for %d robots.", getName().c_str(), num_workers, siC_->getIndividualCount());
+    auto jobs_for_worker = split(siC_->getIndividualCount(), num_workers);
+
+    OMPL_INFORM("%s: Assigned %d workers to plan paths for %d robots.", getName().c_str(), num_workers, siC_->getIndividualCount());
 
     // Create a thread for each segment.
+    unsigned int start = 0;
+    unsigned int end = jobs_for_worker[0];
     for (unsigned int i = 0; i < num_workers; i++)
     {
-        if (i < (num_workers - 1))
-        {
-            // plan for the assigned work segment
-            unsigned int start = i * jobs_per_thread;
-            unsigned int end = (i + 1) * jobs_per_thread;
-            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
-                this, plan, start, end));
-        }
-        else
-        {
-            // the last thread gets to plan for assigned work portion PLUS the remainder 
-            unsigned int start = i * jobs_per_thread;
-            unsigned int end = ((i + 1) * jobs_per_thread) + remainder;
-            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
-                this, std::ref(plan), start, end));
-        }
+        threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
+            this, plan, start, end));
+
+        // update start and end 
+        start = end;
+        end += jobs_for_worker[i + 1];
     }
 
     // Join all of the threads.
     for (auto& thread : threads) {
         thread.join();
+    }
+}
+
+void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered)
+{
+    if (solution) // another thread beat this one to a solution
+        return;
+    
+    // get the best unexplored node in the constraint tree
+    NodePtr currentNode = popNode();
+
+    // if current node has not plan, then attempt to find one again
+    if (currentNode->getCost() == std::numeric_limits<double>::max())
+    {
+        // check it constrained robot is already reserved by someone else
+        auto reserved_itr = std::find(resevered.begin(), resevered.end(), currentNode->getConstraint()->constrainedRobot_);
+        if (reserved_itr == resevered.end()) // not reserved, proceed to plan for it
+        {
+            // use existing tree to attempt a replan
+            // reserve robot
+            resevered.push_back(currentNode->getConstraint()->constrainedRobot_);
+            // attempt replan    
+            attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
+        }
+        else // already reserved, just push to queue for later use
+            pushNode(currentNode);
+    }
+    // else if (currentNode->getCost() == 0) // node was reserved last time we tried to find a plan
+    // {
+    //     // check it constrained robot is already reserved by someone else
+    //     auto reserved_itr = std::find(resevered.begin(), resevered.end(), currentNode->getConstraint()->constrainedRobot_);
+    //     if (reserved_itr == resevered.end()) // not reserved, proceed to plan for it
+    //     {
+    //         // reserve robot
+    //         resevered.push_back(currentNode->getConstraint()->constrainedRobot_);
+    //         // attempt replan
+    //         attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, false);
+    //     }
+    //     else
+    //         pushNode(currentNode);
+    // }
+    else
+    {
+        // find conflicts in the current plan
+        std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
+
+        // if no conflicts were found, return as solution
+        if (confs.empty()) {
+            solution = currentNode;
+            return;
+        }
+
+        // for debugging
+        // for (auto &c: confs)
+        // {
+        //     std::cout << "conflict between " << c.robots_[0] << " and " << c.robots_[1] << " at time " << c.timeStep_ << " with states " << c.states_[0] << " and " << c.states_[1]  << std::endl;
+        // }
+
+        // update the conflictCounter_;
+        updateConflictCounter(confs);
+
+        // FIXME: need to keep the merge logic somehow
+        // if merge is needed, then merge and restart
+        // std::pair<int, int> merge_indices = mergeNeeded();
+        // if (merge_indices != std::make_pair(-1, -1))
+        // {
+        //     if (!siC_->getSystemMerger())
+        //     {
+        //         OMPL_INFORM("%s: Merge was triggered but no SystemMerger was provided. UNable to expand node.", getName().c_str());
+        //         return; // FIXME: need to notify that expansion failed
+        //     }
+        //     else
+        //     {
+        //         OMPL_INFORM("%s: Merge was triggered. Composing individuals %d and %d.", getName().c_str(), merge_indices.first, merge_indices.second);
+        //         std::pair<const SpaceInformationPtr, const ompl::multirobot::base::ProblemDefinitionPtr> new_defs = siC_->merge(merge_indices.first, merge_indices.second);
+        //         if (new_defs.first && new_defs.second)
+        //         {
+        //             mergerPlanner_ = std::make_shared<KCBS>(new_defs.first);
+        //             mergerPlanner_->setProblemDefinition(new_defs.second);
+        //             return mergerPlanner_->solve(ptc);
+        //         }
+        //         else
+        //         {
+        //             OMPL_INFORM("%s: SystemMerge was triggered but failed. Unable to expand node.", getName().c_str());
+        //             return; // FIXME: need to notify that expansion failed
+        //         }
+                
+        //     }
+        // }
+
+        // create a constraint for every agent in confs
+        // for example, if conflicts occur between robots 0 and 2 for the interval dt=[615, 665] then
+        // constraint1 is given to robot 0 which forces it to avoid the states of robot 2 for all steps inside dt=[615, 665]
+        // constraint2 is given to robot 2 which forces it to avoid the states of robot 0 for all steps inside dt=[615, 665]
+        // then, replan for robots 0 and 2 after adding the constraints as dynamic obstacles
+
+        std::vector<ConstraintPtr> new_constraints;
+        for (unsigned int r = 0; r < 2; r++)
+        {
+            // create a new constraint
+            ConstraintPtr new_constraint = createConstraint(r, confs);
+            new_constraints.push_back(new_constraint);
+            // check it constrained robot is already reserved by someone else
+            auto reserved_itr = std::find(resevered.begin(), resevered.end(), new_constraint->constrainedRobot_);
+            if (reserved_itr != resevered.end()) // reserved and cannot expand from this node
+            {
+                // push currentNode back into the queue and end function call
+                pushNode(currentNode);
+                return;
+            }
+        }
+
+        // good news! -- we can expand from this node
+        std::vector<std::thread> threads;
+        for (unsigned int r = 0; r < 2; r++)
+        {
+            // create a new node to house the new constraint, also assign a parent
+            NodePtr nxtNode = std::make_shared<Node>();
+            nxtNode->setParent(currentNode);
+            nxtNode->setConstraint(new_constraints[r]);
+            // reserve robot
+            resevered.push_back(new_constraints[r]->constrainedRobot_);
+            // attempt to replan and push node to priority queue
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
+                this, new_constraints[r]->constrainedRobot_, nxtNode, false)); 
+        }
+        // Join all of the threads.
+        for (auto& thread : threads) {
+            thread.join();
+        }
     }
 }
 
@@ -412,95 +563,27 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     NodePtr solution = nullptr;
     bool solved = false;
 
+    std::vector<unsigned int> resevered;
+
     while (!ptc && !pq_.empty())
     {
-        // get the best unexplored node in the constraint tree
-        NodePtr currentNode = popNode();
-
-        // if current node has not plan, then attempt to find one again
-        if (currentNode->getCost() == std::numeric_limits<double>::max())
+        // use multiple threads to expand multiple nodes at once
+        const unsigned int numNodesInQueue = pq_.size();
+        const unsigned int test = std::floor(numThreads_ / 2);
+        const unsigned int numNodesSelect = std::min(numNodesInQueue, test);
+        std::vector<std::thread> threads;
+        for (unsigned int i = 0; i < numNodesSelect; i++)
         {
-            // use existing tree to attempt a replan
-            attemptReplan(currentNode->getConstraint()->constrainedRobot_, currentNode, true);
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelNodeExpansion, this, std::ref(solution), std::ref(resevered)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // wait 0.1 seconds s.t. reserved is updated properly
         }
-        else
-        {
-            // find conflicts in the current plan
-            std::vector<Conflict> confs = findConflicts(currentNode->getPlan());
-
-            // if no conflicts were found, return as solution
-            if (confs.empty()) {
-                solution = currentNode;
-                break;
-            }
-
-            // for debugging
-            // for (auto &c: confs)
-            // {
-            //     std::cout << "conflict between " << c.robots_[0] << " and " << c.robots_[1] << " at time " << c.timeStep_ << " with states " << c.states_[0] << " and " << c.states_[1]  << std::endl;
-            // }
-
-            // update the conflictCounter_;
-            updateConflictCounter(confs);
-
-            // if merge is needed, then merge and restart
-            std::pair<int, int> merge_indices = mergeNeeded();
-            if (merge_indices != std::make_pair(-1, -1))
-            {
-                if (!siC_->getSystemMerger())
-                {
-                    OMPL_INFORM("%s: Merge was triggered but no SystemMerger was provided. Returning with failure.", getName().c_str());
-                    return {false, false};
-                }
-                else
-                {
-                    OMPL_INFORM("%s: Merge was triggered. Composing individuals %d and %d.", getName().c_str(), merge_indices.first, merge_indices.second);
-                    std::pair<const SpaceInformationPtr, const ompl::multirobot::base::ProblemDefinitionPtr> new_defs = siC_->merge(merge_indices.first, merge_indices.second);
-                    if (new_defs.first && new_defs.second)
-                    {
-                        mergerPlanner_ = std::make_shared<KCBS>(new_defs.first);
-                        mergerPlanner_->setProblemDefinition(new_defs.second);
-                        return mergerPlanner_->solve(ptc);
-                    }
-                    else
-                    {
-                        OMPL_INFORM("%s: SystemMerge was triggered but failed. Returning with failure.", getName().c_str());
-                        return {false, false};
-                    }
-                    
-                }
-            }
-
-            // create a constraint for every agent in confs
-            // for example, if conflicts occur between robots 0 and 2 for the interval dt=[615, 665] then
-            // constraint1 is given to robot 0 which forces it to avoid the states of robot 2 for all steps inside dt=[615, 665]
-            // constraint2 is given to robot 2 which forces it to avoid the states of robot 0 for all steps inside dt=[615, 665]
-            // then, replan for robots 0 and 2 after adding the constraints as dynamic obstacles
-
-            std::vector<std::thread> threads;
-
-            for (unsigned int r = 0; r < 2; r++)
-            {
-                // create a new constraint
-                const ConstraintPtr new_constraint = createConstraint(r, confs);
-
-                // std::cout << "Created constraint for robot " << new_constraint->constrainedRobot_ << std::endl;
-
-                // create a new node to house the new constraint, also assign a parent
-                NodePtr nxtNode = std::make_shared<Node>();
-                nxtNode->setParent(currentNode);
-                nxtNode->setConstraint(new_constraint);
-
-                // attempt to replan and push node to priority queue
-                threads.push_back(std::thread(&ompl::multirobot::control::KCBS::attemptReplan, 
-                    this, new_constraint->constrainedRobot_, nxtNode, false));
-            }
-
-            // Join all of the threads.
-            for (auto& thread : threads) {
-                thread.join();
-            }
+        // Join all of the threads.
+        for (auto& thread : threads) {
+            thread.join();
         }
+        resevered.clear();
+        if (solution)
+            break;
     }
     if (solution == nullptr) 
     {

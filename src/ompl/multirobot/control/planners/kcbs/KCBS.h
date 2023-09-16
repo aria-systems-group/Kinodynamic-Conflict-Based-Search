@@ -304,6 +304,9 @@ namespace ompl
                 /** \brief generates trajectories for robots in range [startIdx, endIdx) and saves them into plan */
                 void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx);
 
+                /** \breif expand a single node from the queue, check it for conflicts, and expand it */
+                void parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered);
+
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
                 void attemptReplan(const unsigned int robot, NodePtr node, const bool retry = false);
 
@@ -324,6 +327,9 @@ namespace ompl
 
                 /** \brief Get the top element and then pop it out of the queue */
                 NodePtr popNode();
+
+                /** \brief Helper function for splitting a number of jobs evenly amongst a number of workers*/
+                std::vector<unsigned int> split(const unsigned int jobs, const unsigned int workers);
 
                 /** \brief Free the memory allocated by this planner */
                 void freeMemory();
@@ -349,8 +355,8 @@ namespace ompl
                 /** \brief A list of all nodes, used by freeMemory */
                 std::unordered_set<NodePtr, NodeHasher> allNodesSet_;
 
-                using BoostGraph = boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, NodePtr>;
                 /** \brief the boost::adjacency_list object used for examining the high-level constraint tree's behavior. */
+                using BoostGraph = boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, NodePtr>;
                 BoostGraph tree_;
 
                 /** \brief the map for making edges in tree_. */
@@ -364,7 +370,7 @@ namespace ompl
                 double rootSolveTime_;
 
                 /** \brief The number of workers (threads) used to generate the root node */
-                unsigned int numThreads_{3};
+                unsigned int numThreads_{4};
 
                 /** \brief Another instance of K-CBS for solving the merged problem -- not always used but saved for memory purposes. */
                 KCBSPtr mergerPlanner_{nullptr};

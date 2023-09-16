@@ -96,7 +96,7 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
             time += durs[step];
         }
         // add the robot staying still at goal as dynamic obstacle
-        const unsigned int max_steps = 100000;
+        const unsigned int max_steps = 10000;
         for (unsigned int s = 0; s < max_steps; s++)
         {
             auto goal_state =  siC_->getIndividual(individual)->cloneState(states.back());
@@ -104,6 +104,10 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
             si_->addDynamicObstacleForIndividual(r, individual, goal_state, time);
         }
     }
+    // we no longer need anything from individual, can clear its memory to make room for others
+    // Note that all dynamic obstacles were cloned so this works
+    llSolvers_[individual]->clear();
+    siC_->getIndividual(individual)->clearDynamicObstacles();
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::PP::solve(const ompl::base::PlannerTerminationCondition &ptc)
