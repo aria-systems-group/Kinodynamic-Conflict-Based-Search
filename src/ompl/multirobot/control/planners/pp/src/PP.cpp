@@ -88,20 +88,26 @@ void ompl::multirobot::control::PP::addPathAsDynamicObstacles(const unsigned int
     for (auto r = individual + 1; r < siC_->getIndividualCount(); r++)
     {
         double time = 0.;
+        // add the path as dynamic obstacles
         for (unsigned int step = 0; step < path->getStateCount(); step++)
         {
             auto state =  siC_->getIndividual(individual)->cloneState(states[step]);
             siC_->getIndividual(r)->addDynamicObstacle(time, siC_->getIndividual(individual), state);
             time += durs[step];
         }
-        // add constraints for when robot gets to goal
-        for (unsigned int k = 0; k < 200; k++)
+        // add the robot staying still at goal as dynamic obstacle
+        const unsigned int max_steps = 10000;
+        for (unsigned int s = 0; s < max_steps; s++)
         {
-            auto state =  siC_->getIndividual(individual)->cloneState(states.back());
-            siC_->getIndividual(r)->addDynamicObstacle(time, siC_->getIndividual(individual), state);
+            auto goal_state =  siC_->getIndividual(individual)->cloneState(states.back());
             time += durs.back();
+            si_->addDynamicObstacleForIndividual(r, individual, goal_state, time);
         }
     }
+    // we no longer need anything from individual, can clear its memory to make room for others
+    // Note that all dynamic obstacles were cloned so this works
+    llSolvers_[individual]->clear();
+    siC_->getIndividual(individual)->clearDynamicObstacles();
 }
 
 ompl::base::PlannerStatus ompl::multirobot::control::PP::solve(const ompl::base::PlannerTerminationCondition &ptc)
