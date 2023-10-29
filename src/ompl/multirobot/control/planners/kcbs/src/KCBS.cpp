@@ -574,14 +574,16 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         			mergedPlanner_->setNumThreads(numThreads_);
         			mergedPlanner_->setMergeBound(mergeBound_); 
                     mergedPlanner_->setProblemDefinition(new_defs.second);
-                    mergedPlanner_->solve(ptc);
+                    bool merge_solved = mergedPlanner_->solve(ptc);
                     // create a new node to house the new constraint, also assign a parent
-            		solution = std::make_shared<Node>();
-                    PlanControlPtr sol_plan = std::make_shared<PlanControl>(si_);
-        			for (unsigned int i = 0; i < new_defs.first->getIndividualCount(); i++)
-        				sol_plan->append(new_defs.second->getSolutionPlan()->as<PlanControl>()->getPath(i));
-        			solution->setPlan(sol_plan);
-                    break; 
+                    if (merge_solved)
+                    {
+                        solution = std::make_shared<Node>();
+                        PlanControlPtr sol_plan = std::make_shared<PlanControl>(si_);
+                        for (unsigned int i = 0; i < new_defs.first->getIndividualCount(); i++)
+                        sol_plan->append(new_defs.second->getSolutionPlan()->as<PlanControl>()->getPath(i));
+                        solution->setPlan(sol_plan);
+                    } 
                 }
                 else
                 {
