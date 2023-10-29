@@ -80,8 +80,8 @@ void ompl::multirobot::control::KCBS::freeMemory()
     for (unsigned int r = 0; r < siC_->getIndividualCount(); r++)
         siC_->getIndividual(r)->clearDynamicObstacles();
     // free memory of the merged planner (if it exists)
-    if (mergerPlanner_)
-        mergerPlanner_.reset();
+    if (mergedPlanner_)
+        mergedPlanner_.reset();
     // reset conflict counter
     conflictCounter_.clear();
     // clear the boost graph
@@ -207,13 +207,11 @@ std::vector<ompl::multirobot::control::KCBS::Conflict> ompl::multirobot::control
     return confs;
 }
 
-void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicsts)
+void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicts)
 {
-    // update the conflictCounter map with the newly found conflicts.
-    for (auto &c: conflicsts)
-    {
-        conflictCounter_[std::make_pair(c.robots_[0], c.robots_[1])] += 1;
-    }
+    // update the conflictCounter map with the newly found conflicts -- note that conflicts are unique when this is called.
+	for (auto &c: conflicts)
+    	conflictCounter_[std::make_pair(c.robots_[0], c.robots_[1])] += 1;
 }
 
 std::pair<int, int> ompl::multirobot::control::KCBS::mergeNeeded()
@@ -384,12 +382,11 @@ void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
     }
 
     // Join all of the threads.
-    for (auto& thread : threads) {
+    for (auto& thread : threads) 
         thread.join();
-    }
 }
 
-void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered)
+void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered, std::pair<int, int>& merge_indices)
 {
     if (solution) // another thread beat this one to a solution
         return;
@@ -399,7 +396,7 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
     OMPL_INFORM("%s: selected node with cost %d.", getName().c_str(), currentNode->getCost());
 
     // if current node has not plan, then attempt to find one again
-    if (currentNode->getCost() == std::numeric_limits<double>::max())
+    if (currentNode->getCost() == std::numeric_limits<int>::max())
     {
         // check it constrained robot is already reserved by someone else
         auto reserved_itr = std::find(resevered.begin(), resevered.end(), currentNode->getConstraint()->constrainedRobot_);
@@ -433,32 +430,9 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
 
         // FIXME: need to keep the merge logic somehow
         // if merge is needed, then merge and restart
-        // std::pair<int, int> merge_indices = mergeNeeded();
-        // if (merge_indices != std::make_pair(-1, -1))
-        // {
-        //     if (!siC_->getSystemMerger())
-        //     {
-        //         OMPL_INFORM("%s: Merge was triggered but no SystemMerger was provided. UNable to expand node.", getName().c_str());
-        //         return; // FIXME: need to notify that expansion failed
-        //     }
-        //     else
-        //     {
-        //         OMPL_INFORM("%s: Merge was triggered. Composing individuals %d and %d.", getName().c_str(), merge_indices.first, merge_indices.second);
-        //         std::pair<const SpaceInformationPtr, const ompl::multirobot::base::ProblemDefinitionPtr> new_defs = siC_->merge(merge_indices.first, merge_indices.second);
-        //         if (new_defs.first && new_defs.second)
-        //         {
-        //             mergerPlanner_ = std::make_shared<KCBS>(new_defs.first);
-        //             mergerPlanner_->setProblemDefinition(new_defs.second);
-        //             return mergerPlanner_->solve(ptc);
-        //         }
-        //         else
-        //         {
-        //             OMPL_INFORM("%s: SystemMerge was triggered but failed. Unable to expand node.", getName().c_str());
-        //             return; // FIXME: need to notify that expansion failed
-        //         }
-                
-        //     }
-        // }
+        merge_indices = mergeNeeded();
+        if (merge_indices != std::make_pair(-1, -1))
+        	return;
 
         // create a constraint for every agent in confs
         // for example, if conflicts occur between robots 0 and 2 for the interval dt=[615, 665] then
@@ -505,13 +479,17 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
 
 int ompl::multirobot::control::KCBS::evaluateCost(const std::vector<Conflict> confs)
 {
-    // update the conflictCounter_;
-    updateConflictCounter(confs);
-
     // find the conflicts with unique robot pairs
     std::vector<Conflict> unique_pairs;
-    std::unique_copy(confs.begin(), confs.end(), std::back_inserter(unique_pairs),
-                     [](Conflict c1, Conflict c2) { return c1.robots_[0] == c2.robots_[0] && c1.robots_[1] == c2.robots_[1]; });
+    for (auto &c: confs)
+    {
+    	auto c_itr = std::find_if(
+    		unique_pairs.begin(), unique_pairs.end(),
+    		[&c](const Conflict &other) { return (c.robots_[0] == other.robots_[0] && c.robots_[1] == other.robots_[1]);});
+    	if (c_itr == unique_pairs.end())
+    		unique_pairs.push_back(c);
+    }
+    updateConflictCounter(unique_pairs);
     // return the number of unique pairs we have minus the first one (it will be resolved)
     return unique_pairs.size();
 }
@@ -542,6 +520,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
 
     NodePtr solution = nullptr;
     bool solved = false;
+    std::pair<int, int> merge_indices{-1, -1};
 
     // create root node
     NodePtr root = std::make_shared<Node>(initalPlan);
@@ -552,7 +531,6 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     {
         // for debugging
         root->setConflicts(confs);
-        updateConflictCounter(confs);
         root->setCost(evaluateCost(confs)); // cost for root node is technically undefined
         pushNode(root);
     }
@@ -568,7 +546,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         std::vector<std::thread> threads;
         for (unsigned int i = 0; i < numNodesSelect; i++)
         {
-            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelNodeExpansion, this, std::ref(solution), std::ref(resevered)));
+            threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelNodeExpansion, this, std::ref(solution), std::ref(resevered), std::ref(merge_indices)));
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // wait 0.1 seconds s.t. reserved is updated properly
         }
         // Join all of the threads.
@@ -578,6 +556,41 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         resevered.clear();
         if (solution)
             break;
+        if (merge_indices != std::make_pair(-1, -1))
+        {
+        	if (!siC_->getSystemMerger())
+            {
+                OMPL_ERROR("%s: Merge was triggered but no SystemMerger was provided. Unable to continue planning. Please fix your system merger.", getName().c_str());
+                break;
+            }
+            else
+            {
+                OMPL_INFORM("%s: Merge was triggered. Composing individuals %d and %d.", getName().c_str(), merge_indices.first, merge_indices.second);
+                std::pair<const SpaceInformationPtr, const ompl::multirobot::base::ProblemDefinitionPtr> new_defs = siC_->merge(merge_indices.first, merge_indices.second);
+                if (new_defs.first && new_defs.second)
+                {
+                    mergedPlanner_ = std::make_shared<KCBS>(new_defs.first);
+                    mergedPlanner_->setLowLevelSolveTime(llSolveTime_);
+        			mergedPlanner_->setNumThreads(numThreads_);
+        			mergedPlanner_->setMergeBound(mergeBound_); 
+                    mergedPlanner_->setProblemDefinition(new_defs.second);
+                    mergedPlanner_->solve(ptc);
+                    // create a new node to house the new constraint, also assign a parent
+            		solution = std::make_shared<Node>();
+                    PlanControlPtr sol_plan = std::make_shared<PlanControl>(si_);
+        			for (unsigned int i = 0; i < new_defs.first->getIndividualCount(); i++)
+        				sol_plan->append(new_defs.second->getSolutionPlan()->as<PlanControl>()->getPath(i));
+        			solution->setPlan(sol_plan);
+                    break; 
+                }
+                else
+                {
+                    OMPL_ERROR("%s: SystemMerge was triggered but failed. Unable to expand continue planning. Please fix your system merger.", getName().c_str());
+                    break;
+                }
+                
+            } 
+        }
     }
     if (solution == nullptr) 
     {
