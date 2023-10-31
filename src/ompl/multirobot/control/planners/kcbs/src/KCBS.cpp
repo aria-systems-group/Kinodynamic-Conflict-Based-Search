@@ -316,11 +316,11 @@ void ompl::multirobot::control::KCBS::attemptReplan(const unsigned int robot, No
     pushNode(node);
 }
 
-void ompl::multirobot::control::KCBS::parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx)
+void ompl::multirobot::control::KCBS::parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx, const ompl::base::PlannerTerminationCondition &ptc)
 {
     for (unsigned int i = startIdx; i < endIdx; i++)
     {
-        while (!llSolvers_[i]->getProblemDefinition()->hasExactSolution())
+        while (!llSolvers_[i]->getProblemDefinition()->hasExactSolution() && !ptc)
             llSolvers_[i]->solve(llSolveTime_);
         auto path = std::make_shared<ompl::control::PathControl>(*llSolvers_[i]->getProblemDefinition()->getSolutionPath()->as<ompl::control::PathControl>());
         plan->replace(i, path);
@@ -356,7 +356,7 @@ std::vector<unsigned int> ompl::multirobot::control::KCBS::split(const unsigned 
     return num_jobs_per_workers;
 }
 
-void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
+void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan, const ompl::base::PlannerTerminationCondition &ptc)
 {
     // Create an array of threads.
     std::vector<std::thread> threads;
@@ -374,7 +374,7 @@ void ompl::multirobot::control::KCBS::parallelRootSolution(PlanControlPtr plan)
     for (unsigned int i = 0; i < num_workers; i++)
     {
         threads.push_back(std::thread(&ompl::multirobot::control::KCBS::parallelRootSolutionHelper, 
-            this, plan, start, end));
+            this, plan, start, end, ptc));
 
         // update start and end 
         start = end;
@@ -511,7 +511,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
     }
 
     // get the initial solution
-    parallelRootSolution(initalPlan);
+    parallelRootSolution(initalPlan, ptc);
     
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -559,10 +559,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
         if (merge_indices != std::make_pair(-1, -1))
         {
         	if (!siC_->getSystemMerger())
-            {
                 OMPL_ERROR("%s: Merge was triggered but no SystemMerger was provided. Unable to continue planning. Please fix your system merger.", getName().c_str());
-                break;
-            }
             else
             {
                 OMPL_INFORM("%s: Merge was triggered. Composing individuals %d and %d.", getName().c_str(), merge_indices.first, merge_indices.second);
@@ -586,12 +583,9 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
                     } 
                 }
                 else
-                {
                     OMPL_ERROR("%s: SystemMerge was triggered but failed. Unable to expand continue planning. Please fix your system merger.", getName().c_str());
-                    break;
-                }
-                
-            } 
+            }
+            break;
         }
     }
     if (solution == nullptr) 

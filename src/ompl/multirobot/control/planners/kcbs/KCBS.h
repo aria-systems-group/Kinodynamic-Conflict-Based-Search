@@ -321,10 +321,10 @@ namespace ompl
                 int evaluateCost(const std::vector<Conflict> confs);
 
                 /** \brief Compute the initial solution using multiple threads */
-                void parallelRootSolution(PlanControlPtr plan);
+                void parallelRootSolution(PlanControlPtr plan, const ompl::base::PlannerTerminationCondition &ptc);
 
                 /** \brief generates trajectories for robots in range [startIdx, endIdx) and saves them into plan */
-                void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx);
+                void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx, const ompl::base::PlannerTerminationCondition &ptc);
 
                 /** \breif expand a single node from the queue, check it for conflicts, and expand it */
                 void parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered, std::pair<int, int>& merge_indices);
