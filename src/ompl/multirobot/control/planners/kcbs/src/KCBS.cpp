@@ -209,7 +209,7 @@ std::vector<ompl::multirobot::control::KCBS::Conflict> ompl::multirobot::control
 
 void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicts)
 {
-    // update the conflictCounter map with the newly found conflicts -- note that conflicts are unique when this is called.
+    // update the conflictCounter map with the newly found conflicts
 	for (auto &c: conflicts)
     	conflictCounter_[std::make_pair(c.robots_[0], c.robots_[1])] += 1;
 }
@@ -479,6 +479,14 @@ void ompl::multirobot::control::KCBS::parallelNodeExpansion(NodePtr& solution, s
 
 int ompl::multirobot::control::KCBS::evaluateCost(const std::vector<Conflict> confs)
 {
+    // // update the conflictCounter_;
+    // updateConflictCounter(confs);
+
+    // // find the conflicts with unique robot pairs
+    // std::vector<Conflict> unique_pairs;
+    // std::unique_copy(confs.begin(), confs.end(), std::back_inserter(unique_pairs),
+    //                  [](Conflict c1, Conflict c2) { return c1.robots_[0] == c2.robots_[0] && c1.robots_[1] == c2.robots_[1]; });
+
     // find the conflicts with unique robot pairs
     std::vector<Conflict> unique_pairs;
     for (auto &c: confs)
@@ -498,6 +506,7 @@ ompl::base::PlannerStatus ompl::multirobot::control::KCBS::solve(const ompl::bas
 {
     checkValidity();
 
+    OMPL_INFORM("%s: Merge Bound set to %d", getName().c_str(), mergeBound_);
     OMPL_INFORM("%s: Starting planning. ", getName().c_str());
 
     // start the timer for root solution
