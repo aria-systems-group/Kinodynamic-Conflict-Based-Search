@@ -65,7 +65,7 @@ namespace ompl
             {
             public:
                 /** \brief Constructor */
-                SystemMerger(const SpaceInformationPtr &si) : si_(si)
+                SystemMerger(const SpaceInformationPtr &si, const base::ProblemDefinitionPtr &pdef) : si_(si), pdef_(pdef)
                 {
                 }
 
@@ -75,6 +75,7 @@ namespace ompl
             protected:
                 /** \brief The instance of space information this state validity checker operates on */
                 const SpaceInformationPtr si_;
+                const base::ProblemDefinitionPtr pdef_;
 
             };
         }

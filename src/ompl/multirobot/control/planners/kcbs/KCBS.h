@@ -321,13 +321,13 @@ namespace ompl
                 int evaluateCost(const std::vector<Conflict> confs);
 
                 /** \brief Compute the initial solution using multiple threads */
-                void parallelRootSolution(PlanControlPtr plan);
+                void parallelRootSolution(PlanControlPtr plan, const ompl::base::PlannerTerminationCondition &ptc);
 
                 /** \brief generates trajectories for robots in range [startIdx, endIdx) and saves them into plan */
-                void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx);
+                void parallelRootSolutionHelper(PlanControlPtr plan, unsigned int startIdx, unsigned int endIdx, const ompl::base::PlannerTerminationCondition &ptc);
 
                 /** \breif expand a single node from the queue, check it for conflicts, and expand it */
-                void parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered);
+                void parallelNodeExpansion(NodePtr& solution, std::vector<unsigned int>& resevered, std::pair<int, int>& merge_indices);
 
                 /** \brief The main replanning function for the high-level constraint tree. Updates data of node if replan was successful */
                 void attemptReplan(const unsigned int robot, NodePtr node, const bool retry = false);
@@ -395,7 +395,7 @@ namespace ompl
                 unsigned int numThreads_{4};
 
                 /** \brief Another instance of K-CBS for solving the merged problem -- not always used but saved for memory purposes. */
-                KCBSPtr mergerPlanner_{nullptr};
+                KCBSPtr mergedPlanner_{nullptr};
                 
             };
         }
