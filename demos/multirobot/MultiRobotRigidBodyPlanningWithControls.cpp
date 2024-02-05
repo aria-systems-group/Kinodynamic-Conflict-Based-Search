@@ -135,7 +135,7 @@ this point. Nevertheless, the capabilities are possible.
 class myDemoSystemMerger: public omrc::SystemMerger
 {
 public: 
-    myDemoSystemMerger(const omrc::SpaceInformationPtr &si): omrc::SystemMerger(si) {};
+    myDemoSystemMerger(const omrc::SpaceInformationPtr &si, const omrb::ProblemDefinitionPtr pdef): omrc::SystemMerger(si, pdef) {};
 
     virtual std::pair<const omrc::SpaceInformationPtr, const ompl::multirobot::base::ProblemDefinitionPtr> merge(const int index1, const int index2) const override
     {

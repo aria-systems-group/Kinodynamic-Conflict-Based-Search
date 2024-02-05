@@ -232,10 +232,21 @@ std::vector<ompl::multirobot::control::KCBS::Conflict> ompl::multirobot::control
     return confs;
 }
 
-void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicsts)
+void ompl::multirobot::control::KCBS::updateConflictCounter(const std::vector<Conflict> &conflicts)
 {
-    // update the conflictCounter map with the newly found conflicts.
-    for (auto &c: conflicsts)
+    // find the conflicts with unique robot pairs
+    std::vector<Conflict> unique_pairs;
+    for (auto &c: conflicts)
+    {
+        auto c_itr = std::find_if(
+            unique_pairs.begin(), unique_pairs.end(),
+            [&c](const Conflict &other) { return (c.robots_[0] == other.robots_[0] && c.robots_[1] == other.robots_[1]);});
+        if (c_itr == unique_pairs.end())
+            unique_pairs.push_back(c);
+    }
+
+    // update the conflictCounter map with the unique conflicts.
+    for (auto &c: unique_pairs)
     {
         conflictCounter_[std::make_pair(c.robots_[0], c.robots_[1])] += 1;
     }
